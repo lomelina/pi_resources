@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Irrigation Kiosk
+Comment=Start the irrigation status page in Chromium kiosk mode
+Exec=/your/path/projects/pi_resources/irrigation/start-kiosk.sh
+Terminal=false
+X-GNOME-Autostart-enabled=true
