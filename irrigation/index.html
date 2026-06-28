@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Irrigation Timer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101413;
+      --panel: #18201e;
+      --panel-soft: #202b28;
+      --text: #eef7f1;
+      --muted: #9db3aa;
+      --accent: #7bd88f;
+      --accent-strong: #29b66b;
+      --warn: #ffd166;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    main {
+      width: min(100vw, 800px);
+      height: min(100vh, 480px);
+      padding: 22px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 18px;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(123, 216, 143, 0.12), transparent 32%),
+        linear-gradient(135deg, #101413 0%, #17211e 56%, #111817 100%);
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 42px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .status {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(123, 216, 143, 0.14);
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    section {
+      min-width: 0;
+      min-height: 0;
+      padding: 20px;
+      border: 1px solid rgba(238, 247, 241, 0.08);
+      border-radius: 8px;
+      background: rgba(24, 32, 30, 0.88);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .label {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .clock {
+      font-variant-numeric: tabular-nums;
+      font-size: 74px;
+      line-height: 0.96;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .date {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .countdown {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      font-size: 54px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .next-run {
+      margin-top: 14px;
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1.22;
+    }
+
+    footer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      min-height: 44px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    code {
+      color: var(--warn);
+      font-family: "Courier New", monospace;
+      font-size: 0.95em;
+    }
+
+    @media (max-width: 650px) {
+      main {
+        height: 100vh;
+        padding: 14px;
+        gap: 12px;
+      }
+
+      .dashboard {
+        grid-template-columns: 1fr;
+      }
+
+      .clock {
+        font-size: 56px;
+      }
+
+      .countdown {
+        font-size: 44px;
+      }
+
+      footer {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Irrigation Schedule</h1>
+      <div class="status" id="status">Waiting</div>
+    </header>
+
+    <div class="dashboard" aria-live="polite">
+      <section>
+        <p class="label">Current time</p>
+        <div class="clock" id="clock">--:--:--</div>
+        <div class="date" id="date">Loading date</div>
+      </section>
+
+      <section>
+        <p class="label">Next script run in</p>
+        <div class="countdown" id="countdown">--:--:--</div>
+        <div class="next-run" id="next-run">Finding next run</div>
+      </section>
+    </div>
+
+    <footer>
+      <div>Schedule: <code id="cron-label"></code></div>
+      <div id="timezone"></div>
+    </footer>
+  </main>
+
+  <script>
+    const CRON_SCHEDULE = "30 18 * * MON,THU";
+
+    const DAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+    const clockEl = document.getElementById("clock");
+    const dateEl = document.getElementById("date");
+    const countdownEl = document.getElementById("countdown");
+    const nextRunEl = document.getElementById("next-run");
+    const statusEl = document.getElementById("status");
+    const cronLabelEl = document.getElementById("cron-label");
+    const timezoneEl = document.getElementById("timezone");
+
+    cronLabelEl.textContent = CRON_SCHEDULE;
+    timezoneEl.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time";
+
+    function parseCron(cron) {
+      const parts = cron.trim().split(/\s+/);
+      if (parts.length !== 5) {
+        throw new Error("Expected a 5-field cron expression.");
+      }
+
+      const minute = Number(parts[0]);
+      const hour = Number(parts[1]);
+
+      if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+        throw new Error("Cron minute must be 0-59.");
+      }
+
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+        throw new Error("Cron hour must be 0-23.");
+      }
+
+      return {
+        minute,
+        hour,
+        days: parseDays(parts[4])
+      };
+    }
+
+    function parseDays(dayField) {
+      if (dayField === "*") {
+        return [0, 1, 2, 3, 4, 5, 6];
+      }
+
+      return dayField.split(",").map((day) => {
+        const cleanDay = day.trim().toUpperCase();
+        const namedDay = DAY_NAMES.indexOf(cleanDay);
+
+        if (namedDay !== -1) {
+          return namedDay;
+        }
+
+        const numberDay = Number(cleanDay);
+        if (numberDay === 7) {
+          return 0;
+        }
+
+        if (Number.isInteger(numberDay) && numberDay >= 0 && numberDay <= 6) {
+          return numberDay;
+        }
+
+        throw new Error("Unsupported cron day: " + day);
+      });
+    }
+
+    function getNextRun(now, schedule) {
+      for (let offset = 0; offset <= 7; offset += 1) {
+        const candidate = new Date(now);
+        candidate.setDate(now.getDate() + offset);
+        candidate.setHours(schedule.hour, schedule.minute, 0, 0);
+
+        if (schedule.days.includes(candidate.getDay()) && candidate > now) {
+          return candidate;
+        }
+      }
+
+      return null;
+    }
+
+    function pad(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function formatDuration(milliseconds) {
+      const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (days > 0) {
+        return days + "d " + pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+      }
+
+      return pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+    }
+
+    function formatDateTime(date) {
+      return new Intl.DateTimeFormat(undefined, {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(date);
+    }
+
+    let schedule;
+
+    try {
+      schedule = parseCron(CRON_SCHEDULE);
+    } catch (error) {
+      statusEl.textContent = "Cron error";
+      countdownEl.textContent = "--:--:--";
+      nextRunEl.textContent = error.message;
+    }
+
+    function tick() {
+      const now = new Date();
+
+      clockEl.textContent = new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(now);
+
+      dateEl.textContent = new Intl.DateTimeFormat(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      }).format(now);
+
+      if (!schedule) {
+        return;
+      }
+
+      const nextRun = getNextRun(now, schedule);
+      if (!nextRun) {
+        statusEl.textContent = "No run found";
+        countdownEl.textContent = "--:--:--";
+        nextRunEl.textContent = "Check the cron schedule";
+        return;
+      }
+
+      statusEl.textContent = "Armed";
+      countdownEl.textContent = formatDuration(nextRun.getTime() - now.getTime());
+      nextRunEl.textContent = formatDateTime(nextRun);
+    }
+
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
